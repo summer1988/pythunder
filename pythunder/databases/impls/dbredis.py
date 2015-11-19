@@ -20,8 +20,12 @@ class Task(rom.model.Model):
 
     """
     QUEUED = 0x0001
-    FAILED = 0x
-    SUCCESS = 2
+    ONFETCH = 0x0002
+    FILTERING = 0x0004
+    ONPROCESS = 0x0008
+    ONCOLLECT = 0x0010
+    FAILED = 0x0020
+    SUCCESS = 0x0040
 
     id = rom.PrimaryKey(index=True)
     md5Hash = rom.String()
@@ -34,6 +38,7 @@ class Task(rom.model.Model):
     track = rom.Json()
     updateTime = rom.Float(required=True, default=0)
     executeTime = rom.Float(required=True, default=0)
+    expireTime = rom.Integer(default=0)
     tries = rom.Integer(required=True, default=0)
     retry = rom.Integer(required=True, default=3)
     ok = rom.Boolean(required=True, default=False)
@@ -61,9 +66,8 @@ class Project(rom.model.Model):
     source = rom.Text(required=True)
     updateTime = rom.Float(required=True, default=0)
     executeTime = rom.Float(required=True, default=0)
-    expireTime = rom.Integer(required=True, default=0)
     delayDelte = rom.Boolean(default=True)
-    status = rom.String(default=)
+    status = rom.String(default=0)
 
     @classmethod
     def from_dict(cls, obj):
@@ -105,6 +109,7 @@ class ProjectManager(PyThunderBase):
                 orig.source = source
                 orig.md5Hash = newHash
         for attr, value in six.iteritems(other):
+            pass
 
 
 

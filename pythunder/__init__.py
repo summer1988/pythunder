@@ -6,6 +6,8 @@
 # DateTime: 2015-11-06 20:54
 #
 
+import Ice
+
 from pythunder.libs.logger import PyThunderLogger
 from pythunder.utils.miscs import getMd5
 
@@ -23,6 +25,7 @@ class PyThunderBase(object):
     def logger(self):
         if not hasattr(self, '__logger'):
             self.__logger = PyThunderLogger(self.loggerName)
+            Ice.setProcessLogger(self.__logger)
             # PyThunderLogger.basicConfig(self.loggerName)
         return self.__logger
 

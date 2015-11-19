@@ -23,11 +23,14 @@ class BaseServant(PyThunderBase):
     """
 
     """
+    servantPrefix = None
+
     def __init__(self, properties):
         super(BaseServant, self).__init__()
         self._properties = properties
-        self._servantPrefix = self._properties.getProperty('Servant.Config.Prefix')
-        self._servantConfig = self._properties.getPropertiesForPrefix(self._servantPrefix)
+        if self.servantPrefix is None:
+            self.servantPrefix = self.properties.getProperty('Servant.Config.Prefix')
+        self._servantConfig = self._properties.getPropertiesForPrefix(self.servantPrefix)
         self._workerQueue = None
 
     @property
@@ -83,6 +86,10 @@ class BaseServer(Ice.Application, PyThunderBase):
     """
     cls = None
 
+    def __init__(self):
+        super(BaseServer, self).__init__(signalPolicy=0)
+        self.worker = None
+
     def getAdapterName(self, properties):
         for key, value in six.iteritems(properties.getPropertiesForPrefix('')):
             if '.AdapterId' in key:
@@ -90,20 +97,19 @@ class BaseServer(Ice.Application, PyThunderBase):
 
     def run(self, args):
         self.callbackOnInterrupt()
-        worker = Worker()
-        worker.setSignalSender(worker)
+        self.worker = Worker()
+        self.worker.setSignalSender(self.worker)
         properties = self.communicator().getProperties()
         adapterName = self.getAdapterName(properties)
         adapter = self.communicator().createObjectAdapter(adapterName)
         _id = self.communicator().stringToIdentity(properties.getProperty("Identity"))
         servant = self.cls(properties)
-        servant.workerQueue = worker.workerQueue
+        servant.workerQueue = self.worker.workerQueue
         adapter.add(servant, _id)
-        threadSig.send(worker, event=ThreadEvent.START)
+        threadSig.send(self.worker, event=ThreadEvent.START)
         adapter.activate()
         self.communicator().waitForShutdown()
         if self.interrupted():
-            threadSig.send(worker, event=ThreadEvent.STOP)
             self.logger.warning('{} terminated !'.format(self.appName))
         return 0
 
@@ -112,6 +118,7 @@ class BaseServer(Ice.Application, PyThunderBase):
         sys.exit(cls().main(sys.argv))
 
     def interruptCallback(self, sig):
+        threadSig.send(self.worker, event=ThreadEvent.STOP)
         self._communicator.shutdown()
 
 
