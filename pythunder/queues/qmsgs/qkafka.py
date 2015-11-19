@@ -6,12 +6,9 @@
 # DateTime: 2015-11-09 16:53
 #
 
-import codecs
-
 import six
-import umsgpack
 
-from gevent import Timeout, sleep
+from gevent import Timeout
 from kafka import KafkaConsumer, KafkaClient, KeyedProducer
 from six.moves.urllib_parse import urlparse, parse_qsl
 

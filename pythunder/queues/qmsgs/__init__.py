@@ -8,12 +8,10 @@
 
 import time
 
-import msgpack
 import umsgpack
 
 from six.moves import queue as BaseQueue
-from gevent import Timeout, sleep
-from gevent.threading import Lock
+from gevent import sleep
 
 
 # class MQCliBase(object):
