@@ -6,6 +6,8 @@
 # DateTime: 2015-11-14 06:42
 #
 
+import time
+
 import rom
 import six
 
@@ -19,6 +21,7 @@ class Task(rom.model.Model):
     """
 
     """
+    CREATED = 0x0030
     QUEUED = 0x0001
     ONFETCH = 0x0002
     FILTERING = 0x0004
@@ -28,7 +31,7 @@ class Task(rom.model.Model):
     SUCCESS = 0x0040
 
     id = rom.PrimaryKey(index=True)
-    md5Hash = rom.String()
+    md5Hash = rom.String(required=True)
     url = rom.String(required=True, unique=True)
     fetch = rom.Json()
     schedule = rom.Json()
@@ -36,12 +39,13 @@ class Task(rom.model.Model):
     collect = rom.Json()
     process = rom.Json()
     track = rom.Json()
-    updateTime = rom.Float(required=True, default=0)
-    executeTime = rom.Float(required=True, default=0)
+    updateTime = rom.Float(default=0)
+    executeTime = rom.Float(default=0)
     expireTime = rom.Integer(default=0)
-    tries = rom.Integer(required=True, default=0)
-    retry = rom.Integer(required=True, default=3)
-    ok = rom.Boolean(required=True, default=False)
+    tries = rom.Integer(default=0)
+    retry = rom.Integer(default=3)
+    status = rom.Integer(default=CREATED)
+    ok = rom.Boolean(default=False)
 
     @classmethod
     def fromDict(cls, obj):
@@ -59,15 +63,17 @@ class Project(rom.model.Model):
     HOLD = 4
     IDLE = 5
     STOP = 6
+    DELAYDELETE = 7
 
     id = rom.PrimaryKey()
-    md5Hash = rom.String(unique=True, index=True, keygen=rom.FULL_TEXT)
-    startUrl = rom.String(default='http://localhost/test.html')
-    source = rom.Text(required=True)
-    updateTime = rom.Float(required=True, default=0)
-    executeTime = rom.Float(required=True, default=0)
-    delayDelte = rom.Boolean(default=True)
-    status = rom.String(default=0)
+    md5Hash = rom.String(index=True, keygen=rom.FULL_TEXT)
+    startUrl = rom.String(default='')
+    source = rom.Text(unique=True, required=True)
+    updateTime = rom.Float(default=0)
+    executeTime = rom.Float(default=0)
+    delayDelete = rom.Boolean(default=True)
+    deleteTick = rom.Json()
+    status = rom.Integer(default=READY)
 
     @classmethod
     def from_dict(cls, obj):
@@ -80,27 +86,105 @@ class ProjectManager(PyThunderBase):
     """
     def __init__(self, url):
         self._projects = dict()
-
-    def updateProject(self, prj):
-        pass
+        self._changed = True
 
     def createProject(self, prj):
-        pass
+        project = Project(status=Project.READY, updateTime=time.time(),
+                          source='', startUrl='')
+        self._checkAndApplyChanges(project, prj)
+        project.save()
+        self._changed = True
+        return project.id
 
-    def deleteProject(self, pid):
-        pass
+    def startProject(self, pid):
+        return self.changeProjectStatus(pid, Project.RUNNING)
 
-    def getProject(self, pidList):
-        pass
+    def checkingProject(self, pid):
+        return self.changeProjectStatus(pid, Project.CHECKING)
 
-    def getAllProject(self):
-        pass
+    def stopProject(self, pid):
+        return self.changeProjectStatus(pid, Project.STOP, other={'executeTime': time.time()})
+
+    def holdProject(self, pid):
+        return self.changeProjectStatus(pid, Project.HOLD)
+
+    def deleteProject(self, pid, delay=60 * 60):
+        if delay:
+            return self._changeProjectStatus(
+                    pid, Project.DELAYDELETE,
+                    other={'delayTick': {'time': time.time(), 'delay': delay}}
+            )
+        else:
+            if self._getProject(pid):
+                self._getProject(pid).delete()
+                self.logger.debug('delete project: {} immediately.'.format(pid))
+                return True
+            else:
+                self.logger.debug('delte project: {} failed'.format(pid))
+                return False
+
+    def getProjects(self, pidList):
+        if self._changed:
+            return self._getProjectFromDB(pidList)
+        else:
+            return [self._getProject(pid).to_dict() for pid in pidList if self._getProject(pid)]
+
+    def getAllProjects(self):
+        if self._changed:
+            return self._getProjectFromDB()
+        else:
+            return [prj.to_dict() for prj in six.itervalues(self._projects)]
+
+    def changeProjectStatus(self, pid, status, other=None):
+        if self._getProject(pid):
+            if self._getProject(pid) != status:
+                return self._changeProjectStatus(pid, status, other=other)
+            else:
+                self.logger.debug('project: {} already in status: {}'.format(pid, status))
+                return True
+        return False
+
+    def _changeProjectStatus(self, pid, status, other=None):
+        obj = {'id': pid, 'status': status, 'updateTime': time.time()}
+        if self._getProject(pid).status == Project.DELAYDELETE:
+            obj.update({'delayTick': {}})
+        if other:
+            obj.update(other)
+        try:
+            obj.pop('id', None)
+            self._updateProject(obj)
+            self._changed = True
+            return True
+        except:
+            self.logger.debug('change project: {} status error'.format(pid), exc_info=True)
+
+    def _updateProject(self, prj):
+        pid = prj.get('id')
+        if pid and self._getProject(pid):
+            self._checkAndApplyChanges(self._getProject(pid), prj)
+            self._getProject(pid).save(force=True)
+            self.logger.debug('update project: {} --> {}'.format(pid, prj.keys()))
+            self._changed = True
 
     def _getProject(self, pid):
-        return self._projects.get(pid)
+        if self._projects.get(pid):
+            return self._projects.get(pid)
+        else:
+            self.logger.debug('project: {} not exists'.format(pid))
+            return False
+
+    def _getProjectFromDB(self, pidList=None):
+        if pidList:
+            projList = Project.get(pidList)
+        else:
+            projList = Project.query.filter().all()
+        for prj in projList:
+            self._projects[prj.id] = prj
+        self._changed = False
+        return [prj.to_dict() for prj in projList]
 
     @staticmethod
-    def _checkChanges(orig, other):
+    def _checkAndApplyChanges(orig, other):
         if 'source' in other:
             source = other.pop('source')
             other.pop('md5Hash', None)
@@ -109,20 +193,20 @@ class ProjectManager(PyThunderBase):
                 orig.source = source
                 orig.md5Hash = newHash
         for attr, value in six.iteritems(other):
-            pass
-
-
-
+            setattr(orig, attr, value)
 
 if __name__ == '__main__':
     set_connection_settings(db=7)
-    a = {'md5Hash': '8889'}
-    prj = Project(md5Hash='9999', source='')
-    # sid = prj.save()
-    # print('dproj: {}'.format(sid))
-    prjList = prj.query.filter().all()
-    prjList[0].md5Hash = '8889'
-    prjList[0].save()
-    for _ in prjList:
-        print(_.to_dict())
-        # _.delete()
+    isProject = False
+    if isProject:
+        a = {'md5Hash': '998889', 'source': 'xxx', 'startUrl': ''}
+        pm = ProjectManager('')
+        print(pm.createProject(a))
+        print(pm.getAllProjects())
+        ps = list(pm._projects.keys())
+        print(pm._projects)
+
+        # print('-->Ps:{}'.format(ps))
+        # print(pm.deleteProject(ps[0], delay=None))
+    else:
+        pass
