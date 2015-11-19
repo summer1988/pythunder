@@ -45,9 +45,10 @@ class PyThunderLogger(logging.Logger, Ice.Logger):
     def configure(self):
         pass
 
-    def basicConfig(self, name=None):
+    def basicConfig(self, name=None, enableOneline=False):
         hdl = logging.StreamHandler()
-        fmt = OneLineExceptionFormatter(self.DEFAULT_LOG_FORMAT, self.DEFAULT_DATE_FORMAT)
+        # fmt = OneLineExceptionFormatter(self.DEFAULT_LOG_FORMAT, self.DEFAULT_DATE_FORMAT)
+        fmt = logging.Formatter(self.DEFAULT_LOG_FORMAT, self.DEFAULT_DATE_FORMAT)
         hdl.setFormatter(fmt)
         # root = logging.getLogger()
         self.setLevel(logging.DEBUG)
