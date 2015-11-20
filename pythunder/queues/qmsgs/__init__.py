@@ -152,15 +152,13 @@ class MQBase(object):
 
     def get_nowait(self):
         ret = self._get()
-        # print('get from some: {}'.format(ret))
         if ret is None:
             raise self.Empty
         return umsgpack.unpackb(ret)
 
     def put_nowait(self, item):
-        if self.lazyLimit and self.lastQsize < self.maxSize:
-            pass
-        elif self.full():
+        if (not self.lazyLimit or self.lastQsize >= self.maxSize) \
+                and self.full():
             raise self.Full
         ret = self._put(item=umsgpack.packb(item))
         if ret is not None:
@@ -177,16 +175,10 @@ class MQBase(object):
         raise NotImplementedError
 
     def empty(self):
-        if self.qsize() == 0:
-            return True
-        else:
-            return False
+        return self.qsize() == 0
 
     def full(self):
-        if self.maxSize and self.qsize() >= self.maxSize:
-            return True
-        else:
-            return False
+        return self.maxSize and self.qsize() >= self.maxSize
 
     def close(self):
         pass
