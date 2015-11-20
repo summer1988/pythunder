@@ -31,7 +31,7 @@ class Task(rom.model.Model):
     SUCCESS = 0x0040
 
     id = rom.PrimaryKey(index=True)
-    md5Hash = rom.String(required=True)
+    md5Hash = rom.String()
     url = rom.String(required=True, unique=True)
     fetch = rom.Json()
     schedule = rom.Json()
@@ -39,6 +39,7 @@ class Task(rom.model.Model):
     collect = rom.Json()
     process = rom.Json()
     track = rom.Json()
+    priority = rom.Integer(default=0)
     updateTime = rom.Float(default=0)
     executeTime = rom.Float(default=0)
     expireTime = rom.Integer(default=0)
@@ -49,6 +50,7 @@ class Task(rom.model.Model):
 
     @classmethod
     def fromDict(cls, obj):
+        obj.pop('id', None)
         return cls(**obj)
 
 
@@ -73,10 +75,12 @@ class Project(rom.model.Model):
     executeTime = rom.Float(default=0)
     delayDelete = rom.Boolean(default=True)
     deleteTick = rom.Json()
+    tasks = rom.ManyToOne(Task, on_delete='restrict')
     status = rom.Integer(default=READY)
 
     @classmethod
     def from_dict(cls, obj):
+        obj.pop('id', None)
         return cls(**obj)
 
 
@@ -123,17 +127,28 @@ class ProjectManager(PyThunderBase):
                 self.logger.debug('delte project: {} failed'.format(pid))
                 return False
 
-    def getProjects(self, pidList):
-        if self._changed:
-            return self._getProjectFromDB(pidList)
-        else:
-            return [self._getProject(pid).to_dict() for pid in pidList if self._getProject(pid)]
+    def updateProject(self, pid, **kwargs):
+        if 'id' not in kwargs:
+            kwargs.setdefault('id', pid)
+        return self._updateProject(kwargs)
 
-    def getAllProjects(self):
+    def getProjects(self, pidList, dictObj=False):
         if self._changed:
-            return self._getProjectFromDB()
+            return self._getProjectFromDB(pidList, dictObj)
         else:
-            return [prj.to_dict() for prj in six.itervalues(self._projects)]
+            if dictObj:
+                return [self._getProject(pid).to_dict() for pid in pidList if self._getProject(pid)]
+            else:
+                return [self._getProject(pid) for pid in pidList if self._getProject(pid)]
+
+    def getAllProjects(self, dictObj=False):
+        if self._changed:
+            return self._getProjectFromDB(dictObj=dictObj)
+        else:
+            if dictObj:
+                return [prj.to_dict() for prj in six.itervalues(self._projects)]
+            else:
+                return [prj for prj in six.itervalues(self._projects)]
 
     def changeProjectStatus(self, pid, status, other=None):
         if self._getProject(pid):
@@ -165,6 +180,8 @@ class ProjectManager(PyThunderBase):
             self._getProject(pid).save(force=True)
             self.logger.debug('update project: {} --> {}'.format(pid, prj.keys()))
             self._changed = True
+            return True
+        return False
 
     def _getProject(self, pid):
         if self._projects.get(pid):
@@ -173,7 +190,7 @@ class ProjectManager(PyThunderBase):
             self.logger.debug('project: {} not exists'.format(pid))
             return False
 
-    def _getProjectFromDB(self, pidList=None):
+    def _getProjectFromDB(self, pidList=None, dictObj=False):
         if pidList:
             projList = Project.get(pidList)
         else:
@@ -181,7 +198,10 @@ class ProjectManager(PyThunderBase):
         for prj in projList:
             self._projects[prj.id] = prj
         self._changed = False
-        return [prj.to_dict() for prj in projList]
+        if dictObj:
+            return [prj.to_dict() for prj in projList]
+        else:
+            return projList
 
     @staticmethod
     def _checkAndApplyChanges(orig, other):
@@ -209,4 +229,15 @@ if __name__ == '__main__':
         # print('-->Ps:{}'.format(ps))
         # print(pm.deleteProject(ps[0], delay=None))
     else:
-        pass
+        # task = Task(url='http://www.baidu.com')
+        # print(task.save())
+        taskList = Task.query.filter().all()
+        taskList[0].md5Hash = getMd5(taskList[0].url)
+        taskList[0].save()
+        print(taskList[0].to_dict())
+        pm = ProjectManager('')
+        ps = pm.getAllProjects()[0]
+        print(ps)
+        print('project: {}'.format(ps.to_dict()))
+        print(pm.updateProject(ps.id, tasks=[taskList[0]]))
+        print(pm.getProjects([27], True))
